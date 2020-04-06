@@ -4,20 +4,21 @@ import win32console
 
 import psutil
 
+import openpyxl
+
 # Load the Pandas libraries with alias 'pd' 
 
 import csv
 import json
 import time
-from datetime import datetime
 import os
 from pynput.keyboard import Key, Listener
 
-win = win32console.GetConsoleWindow() 
-win32gui.ShowWindow(win, 0) 
+import datetime
+#win = win32console.GetConsoleWindow() 
+#win32gui.ShowWindow(win, 0) 
 
-interval=10
-filename = "outputs.csv"
+
   
 
 class IdleClassifier(object):
@@ -76,59 +77,98 @@ def ClassClassifier(string, classfile):
 def GetWindowName():
     return win32gui.GetWindowText(win32gui.GetForegroundWindow())
 
+def WriteExcel(ws,index,arr,isRow=True):
+    if isRow:
+        for idx, val in enumerate(arr, start=1):
+            ws.cell(row=index, column=idx).value = val
 
-with open('info.json', 'r') as f:
-    classes = json.load(f)
-
-print("Started Monitoring Your Work")
-
-mouseclassifier = IdleClassifier()
-
-with Listener(on_press=mouseclassifier.UpdateKeyTime) as listener:
-    #listener.join()
-
-    create = not os.path.isfile(filename)    # False
+def Monitor(interval):
 
 
-    with open(filename, "a", newline='') as csvfile:
-        outputcsv = csv.writer(csvfile, delimiter=';')
+    directory="Outputs/"
 
-        if create:            
-            outputcsv.writerow(["Class","String","Date","Mouse"])
+    filepath = directory + str(datetime.date.today().strftime("%d-%m-%Y")) + ".xlsx"
+    
+
+    fields = ['Subcategory','WindowName','Time','MouseState']
+
+
+
+
+    if not os.path.isfile(filepath):  # False
+        wb = openpyxl.Workbook()
+        wb.save(filepath)
+
+        print("Created New File")
+    else:
+        wb = openpyxl.load_workbook(filepath)
+        print("loading existing")
+
+
+    ws1 = wb.active
+    ws1.title = "Log"
+
+    WriteExcel(ws1,1,fields)
+
+    wb.save(filepath)
+
+    #row to start writing on
+    count=2
+
+    #json with basic categorization information
+    with open('info.json', 'r') as f:
+        classes = json.load(f)
+
+    print("Started Monitoring Your Work")
+
+    mouseclassifier = IdleClassifier()
+
+    with Listener(on_press=mouseclassifier.UpdateKeyTime) as listener:
+        #listener.join()
+
+        #listen for keyboard interrupt
         
-        
+
+            
+        #main loop
         while(True):
+            try:
+                time.sleep(interval)
 
-            time.sleep(interval)
+                string = GetWindowName().lower()
 
-            string = GetWindowName().lower()
+                dt_string = datetime.datetime.now().strftime("%H:%M:%S")
 
-            dt_string = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                curclass = ClassClassifier(string, classes)
 
-            curclass = ClassClassifier(string, classes)
+                output = [ curclass, string,dt_string,mouseclassifier.Classify()]
 
-            output = [ curclass, string,dt_string,mouseclassifier.Classify()]
+                WriteExcel(ws1,count,output)
 
-            outputcsv.writerow(output)
-            print(output)
-
-    listener.join()
-
-'''
-GET PROCESS EXERCUTABLE PATH
-p = psutil.Process(7055)
->>> p.name()
-'python'
->>> p.exe()
-_, found_pid = win32process.GetWindowThreadProcessId(hwnd)
-if found_pid == pid:
-hwnds.append(hwnd)
-'''
-
-'''
-monitor web https://medium.com/@manivannan_data/get-browser-history-chrome-firefox-using-python-in-ubuntu-16-04-fb1c1f7ab546
-https://geekswipe.net/technology/computing/analyze-chromes-browsing-history-with-python/
+            
+                print(output)
+            except :
+                print("Bonjour")
+                wb.save(filepath)
+                print("Enregistre")
+                break
 
 
-create pics
-'''
+
+        #listener.join()
+        
+
+def main():
+    dirName='Outputs'
+    try:
+    # Create target Directory
+        os.mkdir(dirName)
+        print("Directory " , dirName ,  " Created ") 
+    except FileExistsError:
+        print("Directory " , dirName ,  " already exists")
+
+    
+    Monitor(interval=10)
+
+if __name__ == "__main__":
+    main()
