@@ -4,7 +4,7 @@
 *.csv
 /Outputs
 *.xlsx
-
+.vscode
 
 
 # Byte-compiled / optimized / DLL files

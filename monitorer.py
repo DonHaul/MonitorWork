@@ -17,24 +17,30 @@ from win10toast import ToastNotifier
 
 from infi.systray import SysTrayIcon
 
+#tells if mouse is still
 class IdleClassifier(object):
 
-    lastpos = (0,0)
+    lastpos = (0,0)    
     lastkeytime = time.time()
-    idlethreshold = 10 #seconds
+    idlethreshold = 10 #seconds  - time in same spot to consider it idle
 
-
+    #if any key was pressed, refresh tiemmer
     def UpdateKeyTime(self,key):
         self.lastkeytime=time.time()
 
+    #whenever this callback is called, update mouse pos
     def UpdateLastMouse(self):
        _,_,self.lastpos = win32gui.GetCursorInfo()
            
 
     def Classify(self):
+        '''
+        Classifies whether user is here or not/ not giving inputs
+        '''
 
         _, _, (x,y) = win32gui.GetCursorInfo()
 
+        #this does it lol, pos is != and no key was touches in the last 10 seconds
         idle = self.lastpos==(x,y) and time.time()-self.lastkeytime> self.idlethreshold
 
         self.lastpos=(x,y)
@@ -46,6 +52,10 @@ class IdleClassifier(object):
 
         
 def ClassClassifier(string, classfile):
+    '''
+    Tells which category of thing are you currently doing
+    Literraally finds first correspondence in the the info.json and returns it
+    '''
 
     activeclass=""
 
@@ -69,23 +79,28 @@ def ClassClassifier(string, classfile):
  
 
 def GetWindowName():
+    #yup
     return win32gui.GetWindowText(win32gui.GetForegroundWindow())
 
-def WriteExcel(ws,index,arr,isRow=True):
-    if isRow:
-        for idx, val in enumerate(arr, start=1):
-            ws.cell(row=index, column=idx).value = val
+def WriteExcel(ws,index,arr,):
+    #array into excel row
+    for idx, val in enumerate(arr, start=1):
+        ws.cell(row=index, column=idx).value = val
 
 def FindFirstEmptyRow(ws,limit=10000):
+    #goes through excel and finds first empty row, (uses column 3 which always has the time value)
     for idx in range(1,limit):
 
-        if ws.cell(row=idx, column=2).value is None:
+        if ws.cell(row=idx, column=3).value is None:
             return idx
 
     return -1
 
 
 def DisplayDailyStats(ws1,interval):
+    '''
+    Displays the category statistics for the day
+    '''
 
     #Calculate them here:
     data = ws1.values
@@ -142,26 +157,27 @@ def DisplayDailyStats(ws1,interval):
     print(strvals)
     #ToastNotifier().show_toast("Daily Stats",strvals,icon_path="eye.ico",duration=10,threaded=True)
 
+#state variables
+class MyClass:
+  isRunning = True
 
-def ExitProgram(systry):
-    systry.shutdown()
-    sys.exit()
+def Monitor(interval,classesfile='info.json',directory="Outputs/"):
+    '''
+    Where all the magic happens
+    '''
 
-def Monitor(interval):
-
-    with open('info.json', 'r') as f:
+    #loads classes and words in it
+    with open(classesfile, 'r') as f:
         classes = json.load(f)
 
-    directory="Outputs/"
 
+    #sets path for file
     filepath = directory + str(datetime.date.today().strftime("%m-%Y")) + ".xlsx"
     
-
+    #filds on top of the excel document
     fields = ['Category','WindowName','Time','MouseState']
 
-
-
-
+    #createæxcel if it does exist else just load it 
     if not os.path.isfile(filepath):  # False
         wb = Workbook()
         wb.save(filepath)
@@ -170,7 +186,7 @@ def Monitor(interval):
     else:
         wb = load_workbook(filepath)
         #notificationthread.raise_exception()
-        print("loading existing")
+        print("Loading Existing")
 
 
 
@@ -190,9 +206,22 @@ def Monitor(interval):
     
     WriteExcel(ws1,1,fields)
 
+    isRunning = True
+
+    statevars = MyClass()
 
     wb.save(filepath)
 
+    from infi.systray import SysTrayIcon
+    def Stop(state):
+        state.isRunning=False
+
+    menu_options = (("Say Hello", None, lambda s :DisplayDailyStats(ws1,10)),)
+    systray = SysTrayIcon("icon.ico", "Example tray icon", menu_options, on_quit=lambda s :Stop(statevars))
+    systray.start()
+    print("Hjelp")
+
+    
 
     mouseclassifier = IdleClassifier()
 
@@ -200,9 +229,9 @@ def Monitor(interval):
     #listener.join()
 
         
-        while(True):
+        while(statevars.isRunning):
 
-            time.sleep(interval)
+        
 
             string = GetWindowName().lower()
 
@@ -214,13 +243,17 @@ def Monitor(interval):
 
             WriteExcel(ws1,count,output)
             
-            print(count , output) 
+            print(isRunning,count , output) 
             count = count + 1 
 
             wb.save(filepath)
 
+            time.sleep(interval)
+
 
     #listener.join()
+    print("Exiting")
+    #systray.stop()
 
             
 
