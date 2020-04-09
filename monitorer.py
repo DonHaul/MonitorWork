@@ -155,11 +155,14 @@ def DisplayDailyStats(ws1,interval):
         strvals = strvals + f"{idx}: {timestring}\n"
 
     print(strvals)
-    #ToastNotifier().show_toast("Daily Stats",strvals,icon_path="eye.ico",duration=10,threaded=True)
+    ToastNotifier().show_toast("Daily Stats",strvals,icon_path="eye.ico",duration=10,threaded=True)
 
 #state variables
 class MyClass:
   isRunning = True
+
+def Stop(state):
+    state.isRunning=False
 
 def Monitor(interval,classesfile='info.json',directory="Outputs/"):
     '''
@@ -189,71 +192,60 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
         print("Loading Existing")
 
 
-
-
-
+    #fetch first sheet
     ws1 = wb.active
     ws1.title = "Log"
+    WriteExcel(ws1,1,fields)
     
-    
-    print(ws1)
-
-    #daily stats
-    #df = pd.DataFrame(ws.values)
-
-
+    #find first row to put values
     count = FindFirstEmptyRow(ws1)
     
-    WriteExcel(ws1,1,fields)
-
-    isRunning = True
-
+    #initialize global variables
     statevars = MyClass()
 
-    wb.save(filepath)
 
-    from infi.systray import SysTrayIcon
-    def Stop(state):
-        state.isRunning=False
+    #Set Up System Tray Icon
 
-    menu_options = (("Say Hello", None, lambda s :DisplayDailyStats(ws1,10)),)
-    systray = SysTrayIcon("icon.ico", "Example tray icon", menu_options, on_quit=lambda s :Stop(statevars))
+    #Show stats button
+    menu_options = (("Show Stats", None, lambda s :DisplayDailyStats(ws1,10)),)
+    #choose icon and how to quit
+    systray = SysTrayIcon("eye.ico", "Monitorer", menu_options, on_quit=lambda s :Stop(statevars))
     systray.start()
-    print("Hjelp")
 
-    
-
+    #initialize activity classifier
     mouseclassifier = IdleClassifier()
 
+    #open listener to read incoming inputs
     with Listener(on_press=mouseclassifier.UpdateKeyTime) as listener:
-    #listener.join()
 
-        
+        #while not quit        
         while(statevars.isRunning):
 
-        
-
+            #window name
             string = GetWindowName().lower()
 
+            #date
             dt_string = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
+            #category
             curclass = ClassClassifier(string, classes)
 
             output = [ curclass, string,dt_string,mouseclassifier.Classify()]
 
+            #write in row
             WriteExcel(ws1,count,output)
             
-            print(isRunning,count , output) 
+            print(output) 
             count = count + 1 
 
+            #maybe not do this here, meh we'll see
             wb.save(filepath)
 
             time.sleep(interval)
 
-
+    wb.save(filepath)
     #listener.join()
     print("Exiting")
-    #systray.stop()
 
             
 
@@ -266,8 +258,8 @@ def main():
     except FileExistsError:
         print("Directory " , dirName ,  " already exists")
 
-    #toaster = ToastNotifier()
-    #toaster.show_toast("Work Monitoring",    "Monitor Process has been started",    icon_path="eye.ico",    duration=5,    threaded=True)
+    toaster = ToastNotifier()
+    toaster.show_toast("Work Monitoring",    "Monitor Process has been started",    icon_path="eye.ico",    duration=5,    threaded=False)
 
 
     # Wait for threaded notification to finish
