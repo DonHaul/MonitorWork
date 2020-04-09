@@ -1,6 +1,8 @@
 #my ignores
 /info.json
 *.csv
+/Outputs
+*.xlsx
 
 
 
