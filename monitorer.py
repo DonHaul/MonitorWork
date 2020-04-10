@@ -30,7 +30,10 @@ class IdleClassifier(object):
 
     #whenever this callback is called, update mouse pos
     def UpdateLastMouse(self):
-       _,_,self.lastpos = win32gui.GetCursorInfo()
+        try:
+            _,_,self.lastpos = win32gui.GetCursorInfo()
+        except:
+            print("Mouse Was not acessible at this point")
            
 
     def Classify(self):
@@ -235,7 +238,7 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
             #write in row
             WriteExcel(ws1,count,output)
             
-            print(output) 
+            #print(output) 
             count = count + 1 
 
             #maybe not do this here, meh we'll see
