@@ -1,4 +1,6 @@
 import  win32gui
+import psutil, win32process
+
 
 from  openpyxl import load_workbook , Workbook
 
@@ -41,7 +43,11 @@ class IdleClassifier(object):
         Classifies whether user is here or not/ not giving inputs
         '''
 
-        _, _, (x,y) = win32gui.GetCursorInfo()
+        try:
+            _, _, (x,y) = win32gui.GetCursorInfo()
+        except:
+            print("On Classify. Mouse Was not acessible at this point")
+        
 
         #this does it lol, pos is != and no key was touches in the last 10 seconds
         idle = self.lastpos==(x,y) and time.time()-self.lastkeytime> self.idlethreshold
@@ -158,7 +164,10 @@ def DisplayDailyStats(ws1,interval):
         strvals = strvals + f"{idx}: {timestring}\n"
 
     print(strvals)
-    ToastNotifier().show_toast("Daily Stats",strvals,icon_path="eye.ico",duration=10,threaded=True)
+    try:
+        ToastNotifier().show_toast("Daily Stats",strvals,icon_path="eye.ico",duration=10,threaded=True)
+    except:
+        print("Issue displaying desktop notification")
 
 #state variables
 class MyClass:
@@ -166,6 +175,17 @@ class MyClass:
 
 def Stop(state):
     state.isRunning=False
+
+def active_window_process_process():
+    pid = win32process.GetWindowThreadProcessId(win32gui.GetForegroundWindow()) #This produces a list of PIDs active window relates to
+
+    try:
+        return  psutil.Process(pid[-1]).exe() #pid[-1] is the most likely to survive last longer #.name() if you want hust the file not the path
+    except:
+        print("Invalid Pid")
+        return "-"
+
+
 
 def Monitor(interval,classesfile='info.json',directory="Outputs/"):
     '''
@@ -181,7 +201,7 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
     filepath = directory + str(datetime.date.today().strftime("%m-%Y")) + ".xlsx"
     
     #filds on top of the excel document
-    fields = ['Category','WindowName','Time','MouseState']
+    fields = ['Category','WindowName','Time','MouseState','Path']
 
     #createæxcel if it does exist else just load it 
     if not os.path.isfile(filepath):  # False
@@ -233,7 +253,11 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
             #category
             curclass = ClassClassifier(string, classes)
 
-            output = [ curclass, string,dt_string,mouseclassifier.Classify()]
+            userstate = mouseclassifier.Classify()
+
+            path = active_window_process_process()
+
+            output = [ curclass, string,dt_string,userstate,path]
 
             #write in row
             WriteExcel(ws1,count,output)
@@ -242,11 +266,31 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
             count = count + 1 
 
             #maybe not do this here, meh we'll see
-            wb.save(filepath)
+            try:
+                wb.save(filepath)
+            except:
+                print("Could not save at this time, excel file is probably open")
 
             time.sleep(interval)
 
-    wb.save(filepath)
+    saved=False
+
+    while saved == False:
+        
+        try:
+            wb.save(filepath)
+            saved=True
+        except:
+            print("Cannot Save at this point")
+            time.sleep(60)
+
+            try:
+                toaster = ToastNotifier()
+                toaster.show_toast("Work Monitoring",    "Cannot Save File! Please close the excel file bro",    icon_path="eye.ico",    duration=5,    threaded=False)
+            except:
+                print("Issue displaying desktop notification")
+        
+
     #listener.join()
     print("Exiting")
 
@@ -261,9 +305,11 @@ def main():
     except FileExistsError:
         print("Directory " , dirName ,  " already exists")
 
-    toaster = ToastNotifier()
-    toaster.show_toast("Work Monitoring",    "Monitor Process has been started",    icon_path="eye.ico",    duration=5,    threaded=False)
-
+    try:
+        toaster = ToastNotifier()
+        toaster.show_toast("Work Monitoring",    "Monitor Process has been started",    icon_path="eye.ico",    duration=5,    threaded=False)
+    except:
+        print("Issue displaying desktop notification")
 
     # Wait for threaded notification to finish
     #while toaster.notification_active():
