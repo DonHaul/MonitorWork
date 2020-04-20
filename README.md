@@ -18,3 +18,4 @@ https://github.com/pypa/setuptools/issues/1963
 
 Commnad to build
 .\env\Scripts\pyinstaller -y --onefile --noconsole  .\monitorer.py
+ .\env\Scripts\pyinstaller -y --onefile  .\monitorer.py  --icon=eye.ico

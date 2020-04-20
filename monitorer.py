@@ -1,6 +1,7 @@
 import  win32gui
 import psutil, win32process
 
+import logging
 
 from  openpyxl import load_workbook , Workbook
 
@@ -19,6 +20,7 @@ from win10toast import ToastNotifier
 
 from infi.systray import SysTrayIcon
 
+
 #tells if mouse is still
 class IdleClassifier(object):
 
@@ -35,8 +37,9 @@ class IdleClassifier(object):
         try:
             _,_,self.lastpos = win32gui.GetCursorInfo()
         except:
-            print("Mouse Was not acessible at this point")
+            logging.warning("Mouse Was not acessible at this point")
            
+
 
     def Classify(self):
         '''
@@ -46,7 +49,8 @@ class IdleClassifier(object):
         try:
             _, _, (x,y) = win32gui.GetCursorInfo()
         except:
-            print("On Classify. Mouse Was not acessible at this point")
+            logging.warning("On Classify. Mouse Was not acessible at this point")
+            return "-"
         
 
         #this does it lol, pos is != and no key was touches in the last 10 seconds
@@ -59,29 +63,45 @@ class IdleClassifier(object):
         else:
             return "AWAKE"
 
-        
-def ClassClassifier(string, classfile):
+
+def GetWithinTimes(df,start_date,end_date):
+        #set time range mask
+    mask = (df['Time'] >start_date ) & (df['Time'] <= end_date )
+
+    #get relevant events
+    df1 = df.loc[mask]
+
+
+
+def ClassClassifier(strings, classfile):
     '''
     Tells which category of thing are you currently doing
     Literraally finds first correspondence in the the info.json and returns it
     '''
 
-    activeclass=""
+    activeclass="Uncategorized"
+    detected=False
 
     #for all classes
     for key in classfile:
+
+        #exit if found
+        if detected:
+            break
         #chkec if there is key in window name
         for lol in classfile[key]:
 
-
-            #if there is exit
-            if lol in string:
-                activeclass=key
+            
+            #exit if found
+            if detected:
                 break
 
-        #if there is exit
-        if activeclass is not "":
-            break
+            for s in strings:
+                #if there is exit
+                if lol in s.lower():
+                    activeclass=key
+                    detected=True
+                    break
 
     return activeclass
 
@@ -91,22 +111,29 @@ def GetWindowName():
     #yup
     return win32gui.GetWindowText(win32gui.GetForegroundWindow())
 
-def WriteExcel(ws,index,arr,):
+def WriteExcel(ws,index,arr):
+
+    if index<1:
+        logging.error("Could not write line, index {0} is invalid,".format(index))
+        return
+
     #array into excel row
     for idx, val in enumerate(arr, start=1):
         ws.cell(row=index, column=idx).value = val
 
 def FindFirstEmptyRow(ws,limit=10000):
     #goes through excel and finds first empty row, (uses column 3 which always has the time value)
-    for idx in range(1,limit):
-
+    idx=1
+    while idx<limit or limit==-1: 
         if ws.cell(row=idx, column=3).value is None:
             return idx
+
+        idx=idx+1
 
     return -1
 
 
-def DisplayDailyStats(ws1,interval):
+def DisplayDailyStats(ws1):
     '''
     Displays the category statistics for the day
     '''
@@ -126,48 +153,30 @@ def DisplayDailyStats(ws1,interval):
     start_date= datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     end_date = start_date+datetime.timedelta(days=1) 
 
+    GetWithinTimes(df,start_date,end_date)
+
     #set time range mask
     mask = (df['Time'] >start_date ) & (df['Time'] <= end_date )
 
     #get relevant events
     df1 = df.loc[mask]
 
-    #count ocurrences for each categorey
-    stats = df1.groupby(['Category'])['Time'].count()
+    #create the time interval between each intervla and the next
+    df1['Interval'] = df1['Time'].shift(-1) - df1['Time']
 
+    #count ocurrences for each categorey
+    stats = df1.groupby(['Category'])['Interval']
 
     strvals=""
 
-    #for each category
-    for idx,val in stats.items():
-        
-        #obtain real val
-        realval=val*interval
-        
-        #obtain in hours minutes format
-        timestring=""
-        hours = datetime.datetime.strptime(str(datetime.timedelta(seconds=realval)),'%H:%M:%S').strftime("%H")
-        minutes = datetime.datetime.strptime(str(datetime.timedelta(seconds=realval)),'%H:%M:%S').strftime("%M")
-
-        #take care of strings
-        if(hours[0]=='0'):
-            hours=hours[1:]
-            
-        if(minutes[0]=='0'):
-            minutes=minutes[1:]
-            
-        if(hours=="0"):
-            timestring = minutes + "m"
-        else:
-            timestring = hours + "h"+minutes+"m"
-        
-        strvals = strvals + f"{idx}: {timestring}\n"
+    for idx,val in stats.sum().items():
+        strvals = strvals + idx  + " "+  str(val)[-8:]+"\n"
 
     print(strvals)
     try:
         ToastNotifier().show_toast("Daily Stats",strvals,icon_path="eye.ico",duration=10,threaded=True)
     except:
-        print("Issue displaying desktop notification")
+        logging.warning("Issue displaying desktop notification")
 
 #state variables
 class MyClass:
@@ -182,7 +191,7 @@ def active_window_process_process():
     try:
         return  psutil.Process(pid[-1]).exe() #pid[-1] is the most likely to survive last longer #.name() if you want hust the file not the path
     except:
-        print("Invalid Pid")
+        logging.warning("Invalid Pid")
         return "-"
 
 
@@ -208,11 +217,24 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
         wb = Workbook()
         wb.save(filepath)
 
-        print("Created New File")
+        logging.info("Created New File")
     else:
-        wb = load_workbook(filepath)
+        try:
+            wb = load_workbook(filepath)
+            logging.debug("Loaded Existing File")
+        except:
+            logging.warning("Output file has been corrupted, creating a new one")
+
+            import shutil
+
+            shutil.copyfile(filepath, filepath+str(time.time))
+        
+            wb = Workbook()
+            wb.save(filepath)
+            
+
         #notificationthread.raise_exception()
-        print("Loading Existing")
+        
 
 
     #fetch first sheet
@@ -220,8 +242,8 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
     ws1.title = "Log"
     WriteExcel(ws1,1,fields)
     
-    #find first row to put values
-    count = FindFirstEmptyRow(ws1)
+    #find first row to put values (search forever)
+    count = FindFirstEmptyRow(ws1,limit=-1)
     
     #initialize global variables
     statevars = MyClass()
@@ -230,7 +252,7 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
     #Set Up System Tray Icon
 
     #Show stats button
-    menu_options = (("Show Stats", None, lambda s :DisplayDailyStats(ws1,10)),)
+    menu_options = (("Show Stats", None, lambda s :DisplayDailyStats(ws1)),)
     #choose icon and how to quit
     systray = SysTrayIcon("eye.ico", "Monitorer", menu_options, on_quit=lambda s :Stop(statevars))
     systray.start()
@@ -245,17 +267,19 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
         while(statevars.isRunning):
 
             #window name
-            string = GetWindowName().lower()
+            string = GetWindowName()
 
             #date
             dt_string = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-            #category
-            curclass = ClassClassifier(string, classes)
+            
 
             userstate = mouseclassifier.Classify()
 
             path = active_window_process_process()
+
+            #category
+            curclass = ClassClassifier([string,path], classes)
 
             output = [ curclass, string,dt_string,userstate,path]
 
@@ -269,7 +293,7 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
             try:
                 wb.save(filepath)
             except:
-                print("Could not save at this time, excel file is probably open")
+                logging.info("Could not save at this time, excel file is probably open")
 
             time.sleep(interval)
 
@@ -281,23 +305,26 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
             wb.save(filepath)
             saved=True
         except:
-            print("Cannot Save at this point")
+            logging.warn("Cannot Save at this point, retrying in 60 seconds")
             time.sleep(60)
 
             try:
                 toaster = ToastNotifier()
                 toaster.show_toast("Work Monitoring",    "Cannot Save File! Please close the excel file bro",    icon_path="eye.ico",    duration=5,    threaded=False)
             except:
-                print("Issue displaying desktop notification")
+                logging.warn("Issue displaying desktop notification")
+                
         
 
     #listener.join()
+    wb.save(filepath)
     print("Exiting")
 
             
 
 def main():
-    dirName='Outputs'
+    
+    dirName="Logs"
     try:
     # Create target Directory
         os.mkdir(dirName)
@@ -305,17 +332,47 @@ def main():
     except FileExistsError:
         print("Directory " , dirName ,  " already exists")
 
+    
+   
+    #logging
+    logging.basicConfig(filename="./Logs/"+datetime.datetime.now().strftime("%H-%M-%S %Y-%m-%d") + '.log',level=logging.DEBUG,format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
+    
+    # define a Handler which writes INFO messages or higher to the sys.stderr
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    # set a format which is simpler for console use
+    formatter = logging.Formatter('%(asctime)s %(name)-12s: %(levelname)-8s %(message)s')
+    # tell the handler to use this format
+    console.setFormatter(formatter)
+    # add the handler to the root logger
+    logging.getLogger('').addHandler(console)
+
+
+    dirName='Outputs'
+    try:
+    # Create target Directory
+        os.mkdir(dirName)
+        logging.info("Directory {0} Created".format(dirName) )
+        
+    except FileExistsError:
+        logging.info("Directory {0} already exists".format(dirName) )
+
+
     try:
         toaster = ToastNotifier()
         toaster.show_toast("Work Monitoring",    "Monitor Process has been started",    icon_path="eye.ico",    duration=5,    threaded=False)
     except:
-        print("Issue displaying desktop notification")
+        logging.warning("Issue displaying desktop notification")
 
     # Wait for threaded notification to finish
     #while toaster.notification_active():
     #    time.sleep(0.1)
     
-    Monitor(interval=10)
+
+    try:
+        Monitor(interval=10)
+    except:
+        logging.exception("Fatal Error")
 
 if __name__ == "__main__":
     main()
