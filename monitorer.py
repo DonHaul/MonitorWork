@@ -3,10 +3,12 @@ import psutil, win32process
 
 import logging
 
-from  openpyxl import load_workbook , Workbook
-
+import csv
+import atexit, os
+  
 from pandas import DataFrame, to_datetime
 # Load the Pandas libraries with alias 'pd' 
+import pandas as pd
 
 import json
 import time
@@ -133,17 +135,21 @@ def FindFirstEmptyRow(ws,limit=10000):
     return -1
 
 
-def DisplayDailyStats(ws1):
+def DisplayDailyStats(filepath,statevars):
     '''
     Displays the category statistics for the day
     '''
 
+    print("entering")
+
+    statevars.csvfile.close()
     #Calculate them here:
-    data = ws1.values
-    # Get the first line in file as a header line
-    columns = next(data)[0:]
-    # Create a DataFrame based on the second and subsequent lines of data
-    df = DataFrame(data, columns=columns)
+    time.sleep(14)
+    df = pd.read_csv(filepath,sep=";",encoding='latin1')
+
+    statevars.csvfile = open(filepath, 'a')
+    statevars.filewriter = csv.writer(statevars.csvfile, delimiter=';',quotechar='|', quoting=csv.QUOTE_MINIMAL)
+
 
     #make sure time is in datetime
     df['Time'] = to_datetime(df['Time'],dayfirst=True)  
@@ -162,15 +168,28 @@ def DisplayDailyStats(ws1):
     df1 = df.loc[mask]
 
     #create the time interval between each intervla and the next
-    df1['Interval'] = df1['Time'].shift(-1) - df1['Time']
+    df1.loc[:, 'Interval'] = df1['Time'].shift(-1) - df1['Time']
+
 
     #count ocurrences for each categorey
-    stats = df1.groupby(['Category'])['Interval'].sort()
+    stats = df1.groupby(['Category'])
+    stats = stats.sum().sort_values('Interval',ascending=False)['Interval']
+
 
     strvals=""
+    count=0
+    for idx,val in stats.items():
+    
+        #use tab if middle
+        sep= "\t" if count % 2 == 0 else "\n"
 
-    for idx,val in stats.sum().items():
-        strvals = strvals + idx  + " "+  str(val)[-8:]+"\t"
+        #remove first 0 of time if exists
+        begin = -7 if str(val)[-8]== "0" else -8
+        
+        strvals = strvals + idx  + " "+  str(val)[begin:-3]+sep
+        count=count+1
+
+
 
     print(strvals)
     try:
@@ -181,6 +200,8 @@ def DisplayDailyStats(ws1):
 #state variables
 class MyClass:
   isRunning = True
+  csvfile=None
+  systray=None
 
 def Stop(state):
     state.isRunning=False
@@ -194,9 +215,27 @@ def active_window_process_process():
         logging.warning("Invalid Pid")
         return "-"
 
+def WriteRowsOnExit(statevars,rows2write):
+    while len(rows2write) > 0:
+            
+        try:
+            statevars.filewriter.writerows(rows2write)
+            rows2write=[]
+            Close(statevars)
+            logging.info("File Written sucessfully")
+            
 
+        except:
+            logging.warn("Cannot Save at this point, retrying in 60 seconds")
+            time.sleep(60)
 
-def Monitor(interval,classesfile='info.json',directory="Outputs/"):
+            try:
+                toaster = ToastNotifier()
+                toaster.show_toast("Work Monitoring",    "Cannot Save File! Please close the excel file bro",    icon_path="eye.ico",    duration=5,    threaded=False)
+            except:
+                logging.warn("Issue displaying desktop notification")
+
+def Monitor(statevars,interval,classesfile='info.json',directory="Outputs/"):
     '''
     Where all the magic happens
     '''
@@ -207,21 +246,21 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
 
 
     #sets path for file
-    filepath = directory + str(datetime.date.today().strftime("%m-%Y")) + ".xlsx"
+    filepath = directory + str(datetime.date.today().strftime("%m-%Y")) + ".csv"
     
     #filds on top of the excel document
-    fields = ['Category','WindowName','Time','MouseState','Path']
+    fields=None
 
     #createæxcel if it does exist else just load it 
     if not os.path.isfile(filepath):  # False
-        wb = Workbook()
-        wb.save(filepath)
+        
+        #addfields later
+        fields = ['Category','WindowName','Time','MouseState','Path']
 
         logging.info("Created New File")
     else:
         try:
-            wb = load_workbook(filepath)
-            logging.debug("Loaded Existing File")
+            logging.warning("Opening Existing File")
         except:
             logging.warning("Output file has been corrupted, creating a new one")
 
@@ -229,38 +268,43 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
 
             shutil.copyfile(filepath, filepath+str(time.time))
         
-            wb = Workbook()
-            wb.save(filepath)
+            
             
 
         #notificationthread.raise_exception()
         
-
-
-    #fetch first sheet
-    ws1 = wb.active
-    ws1.title = "Log"
-    WriteExcel(ws1,1,fields)
     
-    #find first row to put values (search forever)
-    count = FindFirstEmptyRow(ws1,limit=-1)
     
-    #initialize global variables
-    statevars = MyClass()
+
+    rows2write=[]
 
 
     #Set Up System Tray Icon
 
     #Show stats button
-    menu_options = (("Show Stats", None, lambda s :DisplayDailyStats(ws1)),)
+    menu_options = (("Show Stats", None, lambda s :DisplayDailyStats(filepath,statevars)),)
     #choose icon and how to quit
-    systray = SysTrayIcon("eye.ico", "Monitorer", menu_options, on_quit=lambda s :Stop(statevars))
-    systray.start()
+    statevars.systray = SysTrayIcon("eye.ico", "Monitorer", menu_options, on_quit=lambda s :Stop(statevars))
+    statevars.systray.start()
+
+    #set up what happens when "x" is pressed on terminal or with control+c
+    atexit.register(lambda: WriteRowsOnExit(statevars,rows2write))
 
     #initialize activity classifier
     mouseclassifier = IdleClassifier()
 
-    #open listener to read incoming inputs
+    statevars.csvfile = open(filepath, 'a',newline='',encoding="latin-1")
+    statevars.filewriter = csv.writer(statevars.csvfile, delimiter=';',quotechar='|', quoting=csv.QUOTE_MINIMAL)
+
+    #open file read and write
+    #https://stackoverflow.com/questions/14978575/writing-reading-the-same-csv-file-in-python
+
+    
+    
+    if(fields != None):
+        filewriter.writerow(fields)
+
+        #open listener to read incoming inputs
     with Listener(on_press=mouseclassifier.UpdateKeyTime) as listener:
 
         #while not quit        
@@ -283,44 +327,33 @@ def Monitor(interval,classesfile='info.json',directory="Outputs/"):
 
             output = [ curclass, string,dt_string,userstate,path]
 
+            rows2write.append(output)
+            #print(filepath,output)
             #write in row
-            WriteExcel(ws1,count,output)
-            
-            #print(output) 
-            count = count + 1 
-
-            #maybe not do this here, meh we'll see
             try:
-                wb.save(filepath)
+                statevars.filewriter.writerows(rows2write)
+                rows2write=[]
             except:
-                logging.info("Could not save at this time, excel file is probably open")
+                logging.warning("Could not write at this time, writing later")
 
+            
+            #make trigger with focus later
             time.sleep(interval)
 
-    saved=False
+        WriteRowsOnExit(statevars,rows2write)
 
-    while saved == False:
-        
-        try:
-            wb.save(filepath)
-            saved=True
-        except:
-            logging.warn("Cannot Save at this point, retrying in 60 seconds")
-            time.sleep(60)
-
-            try:
-                toaster = ToastNotifier()
-                toaster.show_toast("Work Monitoring",    "Cannot Save File! Please close the excel file bro",    icon_path="eye.ico",    duration=5,    threaded=False)
-            except:
-                logging.warn("Issue displaying desktop notification")
                 
         
 
-    #listener.join()
-    wb.save(filepath)
+    # finally close file
+    Close(statevars)
+
     print("Exiting")
 
             
+def Close(statevars):
+    statevars.csvfile.close()
+    statevars.systray.shutdown()
 
 def main():
     
@@ -368,11 +401,15 @@ def main():
     #while toaster.notification_active():
     #    time.sleep(0.1)
     
+    #initialize global variables
+    statevars = MyClass()
 
     try:
-        Monitor(interval=10)
+        Monitor(statevars,interval=10)
     except:
         logging.exception("Fatal Error")
+        
+        Close(statevars)
 
 if __name__ == "__main__":
     main()
