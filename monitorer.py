@@ -165,12 +165,12 @@ def DisplayDailyStats(ws1):
     df1['Interval'] = df1['Time'].shift(-1) - df1['Time']
 
     #count ocurrences for each categorey
-    stats = df1.groupby(['Category'])['Interval']
+    stats = df1.groupby(['Category'])['Interval'].sort()
 
     strvals=""
 
     for idx,val in stats.sum().items():
-        strvals = strvals + idx  + " "+  str(val)[-8:]+"\n"
+        strvals = strvals + idx  + " "+  str(val)[-8:]+"\t"
 
     print(strvals)
     try:
