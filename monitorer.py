@@ -166,9 +166,13 @@ def DisplayDailyStats(filepath,statevars):
     #get relevant events
     df1 = df.loc[mask]
 
+
+
     #create the time interval between each intervla and the next
     df1.loc[:, 'Interval'] = df1['Time'].shift(-1) - df1['Time']
 
+    #TODO this line must go, when i start using a hooks approach
+    df1 = df1[df1['Interval'].dt.total_seconds() < statevars.interval*3]
 
     #count ocurrences for each categorey
     stats = df1.groupby(['Category'])
@@ -204,6 +208,7 @@ class MyClass:
   encoding="ISO-8859-1"
   filepath=""
   errorini=0
+  interval=10
 
 def Stop(state):
     state.isRunning=False
@@ -222,7 +227,7 @@ def WriteRowsOnExit(statevars,rows2write):
     if statevars.errorini==1:
         return
 
-    rows2write.append(["Offline","",datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"),"OFFLINE",""])
+    #rows2write.append(["Offline","",datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"),"OFFLINE",""])
 
     while len(rows2write) > 0:
             
@@ -438,7 +443,7 @@ def main():
     statevars = MyClass()
 
     try:
-        Monitor(statevars,interval=10)
+        Monitor(statevars,statevars.interval)
     except:
         logging.exception("Fatal Error")
         
